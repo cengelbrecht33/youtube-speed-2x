@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube 2×",
+  "version": "1.1.0",
+  "description": "Set the YouTube video in the current tab to 2×. Click again while the green 2x badge is showing to return to 1×.",
+  "permissions": ["activeTab", "scripting"],
+  "action": {
+    "default_title": "Set YouTube playback to 2×",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
