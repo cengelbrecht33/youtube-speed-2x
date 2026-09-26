@@ -1,9 +1,17 @@
 {
   "manifest_version": 3,
   "name": "YouTube 2×",
-  "version": "1.1.0",
-  "description": "Set the YouTube video in the current tab to 2×. Click again while the green 2x badge is showing to return to 1×.",
-  "permissions": ["activeTab", "scripting"],
+  "version": "1.5.0",
+  "description": "Set the YouTube video in the current tab to 2×. The green 2x badge clears when you open a different video. Click again while it is showing to return to 1×.",
+  "permissions": ["activeTab", "scripting", "storage", "webNavigation"],
+  "host_permissions": [
+    "https://*.youtube.com/*",
+    "https://youtube.com/*",
+    "https://*.youtube-nocookie.com/*",
+    "https://youtube-nocookie.com/*",
+    "https://youtu.be/*",
+    "https://*.youtu.be/*"
+  ],
   "action": {
     "default_title": "Set YouTube playback to 2×",
     "default_icon": {
@@ -21,5 +29,32 @@
   },
   "background": {
     "service_worker": "background.js"
-  }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.youtube.com/*",
+        "https://youtube.com/*",
+        "https://*.youtube-nocookie.com/*",
+        "https://youtube-nocookie.com/*",
+        "https://youtu.be/*",
+        "https://*.youtu.be/*"
+      ],
+      "js": ["watch-main.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://*.youtube.com/*",
+        "https://youtube.com/*",
+        "https://*.youtube-nocookie.com/*",
+        "https://youtube-nocookie.com/*",
+        "https://youtu.be/*",
+        "https://*.youtu.be/*"
+      ],
+      "js": ["watch.js"],
+      "run_at": "document_start"
+    }
+  ]
 }

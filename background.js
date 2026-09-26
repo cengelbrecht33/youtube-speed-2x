@@ -24,6 +24,28 @@ function isYouTubeUrl(url) {
   }
 }
 
+function videoKeyFromUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^www\./, "");
+    if (host === "youtu.be") {
+      const id = parsed.pathname.split("/").filter(Boolean)[0];
+      return id ? "v:" + id : "";
+    }
+    const watchId = parsed.searchParams.get("v");
+    if (watchId) return "v:" + watchId;
+    const shorts = parsed.pathname.match(/\/shorts\/([^/?#]+)/);
+    if (shorts) return "s:" + shorts[1];
+    const embed = parsed.pathname.match(/\/embed\/([^/?#]+)/);
+    if (embed) return "e:" + embed[1];
+    const live = parsed.pathname.match(/\/live\/([^/?#]+)/);
+    if (live) return "l:" + live[1];
+    return "";
+  } catch {
+    return "";
+  }
+}
+
 async function showBadge(tabId, text, color, persist) {
   const token = (badgeTokens.get(tabId) || 0) + 1;
   badgeTokens.set(tabId, token);
@@ -44,14 +66,61 @@ async function showBadge(tabId, text, color, persist) {
 
 async function showSpeed2(tabId) {
   await showBadge(tabId, "2x", "#166534", true);
-  await chrome.action.setTitle({ tabId, title: TITLE_TO_1X });
+  await chrome.action.setTitle({ tabId, title: TITLE_TO_1X }).catch(() => {});
 }
 
 async function clearSpeed(tabId) {
   const token = (badgeTokens.get(tabId) || 0) + 1;
   badgeTokens.set(tabId, token);
   await chrome.action.setBadgeText({ tabId, text: "" });
+  await chrome.action.setBadgeBackgroundColor({ tabId, color: "#00000000" });
   await chrome.action.setTitle({ tabId, title: TITLE_TO_2X });
+}
+
+async function badgeText(tabId) {
+  try {
+    return await chrome.action.getBadgeText({ tabId });
+  } catch {
+    return "";
+  }
+}
+
+async function rememberedKey(tabId) {
+  try {
+    const stored = await chrome.storage.session.get("videoKeys");
+    const keys = stored.videoKeys || {};
+    return keys[String(tabId)] || "";
+  } catch {
+    return "";
+  }
+}
+
+async function rememberKey(tabId, key) {
+  try {
+    const stored = await chrome.storage.session.get("videoKeys");
+    const keys = stored.videoKeys || {};
+    if (key) keys[String(tabId)] = key;
+    else delete keys[String(tabId)];
+    await chrome.storage.session.set({ videoKeys: keys });
+  } catch {
+    // Session storage is only the backup for the in-page watcher.
+  }
+}
+
+async function clearBadge(tabId) {
+  if ((await badgeText(tabId)) !== "2x") return;
+  try {
+    await clearSpeed(tabId);
+  } catch {
+    return;
+  }
+  await rememberKey(tabId, "");
+  chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      if (document.documentElement) document.documentElement.removeAttribute("data-yt-speed");
+    },
+  }).catch(() => {});
 }
 
 // Injected into the page. YouTube reverts a bare video.playbackRate write,
@@ -114,8 +183,8 @@ function setSpeedInPage(rate) {
       seen.add(root);
       const foundPlayer = root.querySelector("#movie_player, #shorts-player");
       if (foundPlayer) players.push(foundPlayer);
-      root.querySelectorAll("video").forEach((video) => videos.push(video));
-      root.querySelectorAll("audio").forEach((audio) => audios.push(audio));
+      root.querySelectorAll("video").forEach((node) => videos.push(node));
+      root.querySelectorAll("audio").forEach((node) => audios.push(node));
       root.querySelectorAll("*").forEach((el) => {
         if (el.shadowRoot) visit(el.shadowRoot, depth + 1);
       });
@@ -159,7 +228,7 @@ function setSpeedInPage(rate) {
   });
 }
 
-chrome.action.onClicked.addListener(async (tab) => {
+async function handleAction(tab) {
   if (tab.id == null) return;
 
   let badge = "";
@@ -186,9 +255,71 @@ chrome.action.onClicked.addListener(async (tab) => {
       if (rate !== 1) await showBadge(tab.id, "!", "#9a3412", false);
       return;
     }
-    if (rate === 2) await showSpeed2(tab.id);
-    else await clearSpeed(tab.id);
+    if (rate === 2) {
+      await showSpeed2(tab.id);
+      await rememberKey(tab.id, videoKeyFromUrl(tab.url || ""));
+    } else {
+      await clearSpeed(tab.id);
+      await rememberKey(tab.id, "");
+    }
   } catch {
     if (rate !== 1) await showBadge(tab.id, "!", "#9a3412", false);
   }
+}
+
+async function noteUrl(tabId, url) {
+  if (!isYouTubeUrl(url)) {
+    await clearBadge(tabId);
+    await rememberKey(tabId, "");
+    return;
+  }
+  const key = videoKeyFromUrl(url);
+  if (!key) return;
+  const previous = await rememberedKey(tabId);
+  if (!previous) {
+    if ((await badgeText(tabId)) === "2x") await rememberKey(tabId, key);
+    return;
+  }
+  if (previous === key) return;
+  await clearBadge(tabId);
+  await rememberKey(tabId, "");
+}
+
+chrome.action.onClicked.addListener((tab) => {
+  void handleAction(tab);
+});
+
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (!msg || msg.type !== "video-changed") return;
+  const tabId = sender.tab && sender.tab.id;
+  if (tabId == null) return;
+  void clearBadge(tabId);
+  void rememberKey(tabId, "");
+});
+
+const YOUTUBE_NAV = {
+  url: [
+    { hostSuffix: "youtube.com" },
+    { hostSuffix: "youtube-nocookie.com" },
+    { hostEquals: "youtu.be" },
+  ],
+};
+
+function onYouTubeNavigation(details) {
+  if (details.frameId !== 0 || !details.url) return;
+  void noteUrl(details.tabId, details.url);
+}
+
+chrome.tabs.onUpdated.addListener((tabId, _changeInfo, tab) => {
+  if (!tab.url) return;
+  void noteUrl(tabId, tab.url);
+});
+
+chrome.webNavigation.onHistoryStateUpdated.addListener(onYouTubeNavigation, YOUTUBE_NAV);
+chrome.webNavigation.onReferenceFragmentUpdated.addListener(onYouTubeNavigation, YOUTUBE_NAV);
+chrome.webNavigation.onCompleted.addListener(onYouTubeNavigation, YOUTUBE_NAV);
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  badgeTokens.delete(tabId);
+  void rememberKey(tabId, "");
 });

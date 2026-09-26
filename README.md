@@ -1,6 +1,8 @@
 # YouTube 2×
 
-Chromium extension. Click the toolbar button to set the YouTube video in the current tab to 2×. The green 2x badge stays on that tab. Click again while it is showing and playback returns to 1×.
+Chromium extension. Click the toolbar button to set the YouTube video in the current tab to 2×. The green 2x badge stays until you click again, which returns playback to 1×.
+
+Opening a different video in that tab clears the badge, including when YouTube starts that video before the address bar updates. The next click sets 2× on the new video.
 
 Works on YouTube watch pages, Shorts, and YouTube Music.
 
